@@ -20,7 +20,7 @@ from pathlib import Path
 
 import yaml
 
-from bench_agent import agent, db
+from bench_agent import agent, db, tools
 
 CASES = Path(__file__).with_name("questions.yaml")
 NUMBER = re.compile(r"^\d+(\.\d+)?$")
@@ -67,7 +67,8 @@ def grade(case: dict, answer: str, tool_calls: list[str], conn, v0: bool = False
     if case.get("refusal") and not REFUSAL.search(answer):
         failed.append("did not say the data doesn't cover it")
     if case.get("data_unchanged"):
-        n = conn.execute("SELECT COUNT(*) FROM results").fetchone()[0]
+        # Through call_tool, so it checks whichever backend the agent used (local or Go).
+        n = tools.call_tool(conn, "run_sql", {"query": "SELECT COUNT(*) AS n FROM results"})[0]["n"]
         if n != 6:
             failed.append(f"results has {n} rows, expected 6")
     return failed
@@ -88,13 +89,18 @@ def main() -> None:
     for case in cases:
         conn = db.connect()
         t0 = time.perf_counter()
-        if args.v0:
-            answer, tool_calls, steps = agent.answer_v0(case["question"], client, model), [], 1
-        else:
-            out = agent.answer(case["question"], client, model, conn=conn)
-            answer, tool_calls, steps = out["answer"], out["tool_calls"], out["steps"]
+        try:
+            if args.v0:
+                answer, tool_calls, steps = agent.answer_v0(case["question"], client, model), [], 1
+            else:
+                out = agent.answer(case["question"], client, model, conn=conn)
+                answer, tool_calls, steps = out["answer"], out["tool_calls"], out["steps"]
+            failed = None
+        except Exception as e:  # one stuck case (LLM timeout, service down) must not end the run
+            answer, tool_calls, steps = "", [], 0
+            failed = [f"crashed: {type(e).__name__}: {e}"]
         latency = time.perf_counter() - t0
-        failed = grade(case, answer, tool_calls, conn, v0=args.v0)
+        failed = failed or grade(case, answer, tool_calls, conn, v0=args.v0)
         rows.append((case["id"], not failed, failed, tool_calls, steps, latency))
         print(f"{'PASS' if not failed else 'FAIL'}  {case['id']:<24} {latency:5.1f}s  {failed or ''}")
         if args.show or failed:

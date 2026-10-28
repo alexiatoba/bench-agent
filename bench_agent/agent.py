@@ -29,6 +29,7 @@ If the data cannot answer the question, say so. Answer in at most 3 sentences
 and quote the numbers you used."""
 
 MAX_STEPS = 6  # hard cap on model<->tool round trips (a guardrail too)
+MAX_TOKENS = 4096  # per LLM call: stops runaway hidden "thinking" before the client timeout
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
@@ -102,7 +103,8 @@ def answer(question: str, client: OpenAI, model: str, conn=None) -> dict:
         for step in range(1, MAX_STEPS + 1):
             with span("llm.call", trace_id, step=step, n_messages=len(messages)) as attrs:
                 resp = client.chat.completions.create(
-                    model=model, messages=messages, tools=tools.TOOL_SPECS, temperature=0
+                    model=model, messages=messages, tools=tools.TOOL_SPECS, temperature=0,
+                    max_tokens=MAX_TOKENS,
                 )
                 msg = resp.choices[0].message
                 attrs["finish_reason"] = resp.choices[0].finish_reason

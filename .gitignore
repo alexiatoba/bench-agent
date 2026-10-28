@@ -3,3 +3,5 @@ traces.jsonl
 __pycache__/
 .pytest_cache/
 .venv/
+bench-api/bench-api
+bench-api/*.exe

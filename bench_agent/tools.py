@@ -13,8 +13,14 @@ Status:
 """
 from __future__ import annotations
 
+import inspect
+import json
+import os
 import re
 import sqlite3
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any
 
 from . import db
@@ -223,10 +229,46 @@ TOOL_SPECS = [
 
 
 def call_tool(conn: sqlite3.Connection, name: str, args: dict[str, Any]) -> Any:
-    """Dispatch a tool call coming from the model.  (GIVEN)"""
+    """Dispatch a tool call coming from the model.
+
+    With BENCH_API_URL set (e.g. http://localhost:8080), the call goes to the Go
+    service in bench-api/ instead of the local SQLite connection. Same results,
+    same error messages, so the agent and the evals don't change.
+    """
     if name not in TOOLS:
         raise ToolError(f"unknown tool {name!r}; available: {sorted(TOOLS)}")
     try:
-        return TOOLS[name](conn, **args)
+        # Validate the arguments against the local signature in both modes, so a bad call
+        # from the model gives the same message whichever backend answers.
+        inspect.signature(TOOLS[name]).bind(conn, **args)
     except TypeError as e:  # wrong / missing arguments from the model
         raise ToolError(f"bad arguments for {name}: {e}") from e
+    if api_url := os.environ.get("BENCH_API_URL"):
+        return _call_remote(api_url.rstrip("/"), name, args)
+    return TOOLS[name](conn, **args)
+
+
+# --------------------------------------------------------------------------- remote (Go)
+def _call_remote(base: str, name: str, args: dict[str, Any]) -> Any:
+    if name == "run_sql":
+        req = urllib.request.Request(
+            f"{base}/sql", data=json.dumps({"query": args["query"]}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+    else:
+        path, params = {
+            "get_schema": ("/schema", {}),
+            "get_findings": ("/findings", {"topic": args.get("topic") or ""}),
+            "compare_versions": ("/compare", {"a": args.get("a"), "b": args.get("b")}),
+        }[name]
+        query = urllib.parse.urlencode({k: v for k, v in params.items() if v})
+        req = urllib.request.Request(f"{base}{path}" + (f"?{query}" if query else ""))
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as e:
+        if e.code == 400:  # the Go ToolError: the model can fix its call
+            raise ToolError(json.load(e)["error"]) from e
+        raise ToolError(f"tool service error (HTTP {e.code}); try again later") from e
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise ToolError(f"tool service unavailable at {base}; the data cannot be queried") from e

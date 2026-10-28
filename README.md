@@ -11,6 +11,15 @@ instead of guessing. It comes with:
 - an **evaluation set** comparing the agent against a no-tools baseline
 - **tracing** of every LLM and tool call
 - a **Dockerfile**
+- **bench-api**: the same tools as a separate **Go HTTP service** with a stricter SQL
+  guard and **Prometheus metrics**. The Python agent calls it over HTTP with one setting
+  (`BENCH_API_URL`).
+
+```
+Python agent / MCP server  --HTTP-->  bench-api (Go)  -->  SQLite, opened read-only
+                                          |
+                                          +-- /metrics  -->  Prometheus
+```
 
 ## Setup (Windows, PowerShell)
 
@@ -21,6 +30,10 @@ python -m venv .venv
 pip install -r requirements.txt
 pytest -q                     # 4 tests pass now, the rest after step 1
 ```
+
+For the Go service, install [Go](https://go.dev/dl/) 1.23+. `pytest` then also runs the
+Go/Python parity tests; without Go they are skipped. Run the Go tests with
+`cd bench-api; go test ./...`.
 
 Pick an LLM provider (all speak the OpenAI API). Copy `.env.example` and set the variables:
 
@@ -48,6 +61,10 @@ It has no data, so watch it guess.
 | 4 | MCP server with all tools | `bench_agent/mcp_server.py` | done |
 | 5 | OpenTelemetry instead of the JSONL tracer | `bench_agent/tracing.py` | done |
 | 6 | Docker | `Dockerfile` | written, not built |
+| G1–G2 | Go tool service + SQL guard | `bench-api/` | done |
+| G3 | Python agent calls the Go service | `bench_agent/tools.py` | done |
+| G4 | Prometheus `/metrics` | `bench-api/metrics.go` | done |
+| G5 | Trace context propagated from Python to Go | | in progress |
 
 ### Step 1: tools and guardrail
 Make `pytest -q` fully green. Then write down in this README:
@@ -236,6 +253,102 @@ image has not been built or run; treat it as untested. What it does:
   ```
   For NVIDIA NIM or OpenAI, pass `--env-file .env`. `.env` is excluded from the image by
   `.dockerignore`, so a key is never baked into it.
+
+## Extension: the tools as a Go service (`bench-api/`)
+
+In production, agents don't call functions inside their own process. They call internal
+services owned by other teams. So I moved the tools into a separate Go HTTP service. The
+Python agent, the MCP server and the evals reach it through `tools.call_tool` once
+`BENCH_API_URL` is set. None of their code changed.
+
+```powershell
+cd bench-api; go run . -addr :8080 -data ../data      # start the service
+$env:BENCH_API_URL = "http://localhost:8080"           # in another terminal
+python -m bench_agent.agent "How much faster is v3 than the CPU?"
+curl localhost:8080/metrics
+```
+
+| Route | Tool |
+|-------|------|
+| `GET /schema` | `get_schema` |
+| `GET /findings?topic=npp` | `get_findings` |
+| `GET /compare?a=cpu&b=v3_separable` | `compare_versions` |
+| `POST /sql` `{"query": "..."}` | `run_sql` |
+| `GET /healthz`, `GET /metrics` | health, Prometheus |
+
+Success returns 200 with the same JSON as the Python tool. Bad input from the model returns
+400 `{"error": "..."}`, which the agent hands back to the model so it can retry, as with
+`ToolError`. Real bugs return 500, with the details kept in the server log.
+
+**SQLite driver.** I used [`ncruces/go-sqlite3`](https://github.com/ncruces/go-sqlite3),
+which is SQLite compiled to WebAssembly and translated to Go. It needs no C compiler
+(`mattn/go-sqlite3` needs cgo and gcc, awkward on Windows). It also exposes everything the
+guard needs: an authorizer, `Stmt.ReadOnly()`, the unparsed `tail` after `Prepare`, and
+interruption through a `context`. I checked each one in the driver's source before relying
+on it.
+
+**The guard is stricter than the Python one** ([guard.go](bench-api/guard.go)):
+
+| Layer | What it does | Python equivalent |
+|-------|--------------|-------------------|
+| 1. Text check | Friendly error messages only. Not trusted. | same |
+| 2. One statement | Whatever `Prepare` leaves in `tail` must be empty or only comments. The tail is *prepared*, never run, to tell `; DROP ...` from a trailing comment. | `execute()` refuses a second statement |
+| 3. `ReadOnly()` | SQLite itself reports whether the compiled statement writes. | none |
+| 4. Authorizer | Only `SELECT`, `READ`, `FUNCTION` and `RECURSIVE` are allowed. | same |
+| 5. Read-only file | The pool's connections are opened with `OPEN_READONLY`, so even a bug in our own code can't write. | none (`:memory:`) |
+| 6. Timeout | The query is interrupted after 2 s. | progress handler, step budget |
+
+Every attack (16 of them: the Python list plus `WITH ... DELETE`, `dElEtE`,
+`PRAGMA writable_schema`, `VACUUM INTO`, `BEGIN; DELETE; COMMIT`, `SELECT 1; SELECT 2`) is
+tested **twice**: once through the full guard, and once with layer 1 bypassed. Each time the
+table must still have 6 rows. Two findings from writing those tests:
+- A write denied by the authorizer comes back as `SQLITE_AUTH`, but a denied *function*
+  comes back as a plain error ("not authorized to use function"). The metric code handles
+  both.
+- The WebAssembly SQLite build has **no `load_extension` at all** ("no such function").
+  That is stronger than denying it.
+
+**Same behaviour, proven by tests.** The model must not be able to tell which backend
+answered, so error messages are reproduced exactly, down to Python's quoting
+(`unknown version 'v9_magic'; valid versions: ['cpu', ...]`) and float formatting (Go's
+`encoding/json` writes `2749.0` as `2749`, so `Row.MarshalJSON` keeps the `.0`).
+[tests/test_go_parity.py](tests/test_go_parity.py) builds and starts the real binary and
+sends 21 tool calls to both backends, covering results, bad arguments and attacks. Results
+and errors must be identical. A service that is down becomes a `ToolError` ("tool service
+unavailable"), not a crash.
+
+**Concurrency.** Go serves requests in parallel, and a SQLite connection must not be shared
+between goroutines. So the service keeps a pool of read-only connections, and each
+request borrows one. The authorizer is set and removed per query on the borrowed connection.
+In Python, the MCP server needed a lock for the same reason.
+
+**Prometheus metrics** ([metrics.go](bench-api/metrics.go)):
+- `bench_api_requests_total{route,status}`: traffic and error rate per tool.
+- `bench_api_request_duration_seconds{route}`: a latency histogram. The `route` label is the
+  mux pattern (`POST /sql`), never the raw URL, so query strings can't create unbounded
+  numbers of series.
+- `bench_api_sql_rejected_total{reason}`: **which guard layer** rejected a query
+  (`text_check`, `multiple_statements`, `not_read_only`, `authorizer`, `timeout`, or
+  `sql_error` for honest mistakes). A rise in the write-related reasons means model-written
+  SQL is trying to write, which deserves an alert (prompt injection), unlike `sql_error`.
+
+**Eval through Go:** the agent passed 5/11 (45%), 37.1 s mean, 2.2 steps
+([evals/results/v1_go_qwen3-8b.txt](evals/results/v1_go_qwen3-8b.txt)). Run 2 on the Python
+tools passed 7/11. **That gap is model variance, not the backend:** the parity tests show the
+model received identical tool output. What changed was qwen3:8b's behaviour. It did
+`throughput_v3`'s arithmetic in its head (6,348 instead of 6350) and used `run_sql` instead
+of `compare_versions` for a correct answer. On `npp_vs_v3` its hidden reasoning ran away
+(`finish_reason: length` after 4096 tokens). So at temperature 0 this model still varies by
+about ±2 cases out of 11 between runs, and **a single eval run cannot tell the two backends
+apart. The parity tests can.** The metrics snapshot after the run
+([v1_go_metrics.txt](evals/results/v1_go_metrics.txt)) matches the traces: 14 tool
+requests (13 from the agent, as in its trace, plus the grader's row-count check), one bad `compare` (the model tried version `'h100'`), one `sql_error`, and zero
+write attempts. In this run the model didn't even try the injected `DELETE`.
+
+Two robustness fixes came out of these runs. That `npp_vs_v3` runaway previously ran into
+the 180 s client timeout and **crashed the whole eval twice**. Now:
+- the agent caps each LLM call at `MAX_TOKENS = 4096`, a cost guardrail like `MAX_STEPS`
+- `run_evals.py` records a crashing case as `FAIL (crashed: ...)` and carries on
 
 ## Results
 

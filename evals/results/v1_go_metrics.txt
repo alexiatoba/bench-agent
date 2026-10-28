@@ -1,0 +1,8 @@
+bench_api_requests_total{route="GET /compare",status="400"} 1
+bench_api_requests_total{route="GET /findings",status="200"} 4
+bench_api_requests_total{route="GET /healthz",status="200"} 1
+bench_api_requests_total{route="GET /metrics",status="200"} 1
+bench_api_requests_total{route="GET /schema",status="200"} 3
+bench_api_requests_total{route="POST /sql",status="200"} 5
+bench_api_requests_total{route="POST /sql",status="400"} 1
+bench_api_sql_rejected_total{reason="sql_error"} 1

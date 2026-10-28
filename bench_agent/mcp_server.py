@@ -26,12 +26,13 @@ conn = db.connect()
 _lock = threading.Lock()
 
 
-def _call(fn, *args) -> Any:
-    """Run a tools.py function; a ToolError becomes an MCP error result (isError=True)
+def _call(name: str, **args) -> Any:
+    """Run a tool through tools.call_tool (local SQLite, or the Go service when
+    BENCH_API_URL is set); a ToolError becomes an MCP error result (isError=True)
     whose text the client's LLM reads, so it can fix its call just like in our own loop."""
     with _lock:
         try:
-            return fn(conn, *args)
+            return tools.call_tool(conn, name, args)
         except tools.ToolError as e:
             raise MCPToolError(str(e)) from e
 
@@ -40,7 +41,7 @@ def _call(fn, *args) -> Any:
 def get_schema() -> str:
     """List the database tables and their columns, plus the exact values of the
     version, description and topic columns. Call this before writing SQL."""
-    return _call(tools.get_schema)
+    return _call("get_schema")
 
 
 @mcp.tool()
@@ -51,7 +52,7 @@ def get_findings(
     were fast or slow, NPP behaviour beyond the measured radius, accuracy, slowdowns,
     sanitizer results. These facts are NOT in the results table. Omit the topic
     unless you are sure which one applies."""
-    return _call(tools.get_findings, topic)
+    return _call("get_findings", topic=topic)
 
 
 @mcp.tool()
@@ -59,7 +60,7 @@ def run_sql(query: str) -> list[dict[str, Any]]:
     """Run ONE read-only SQLite SELECT (or WITH ... SELECT) query over the benchmark
     tables and return at most 50 rows. Writes, schema changes, ATTACH and PRAGMA are
     rejected. Times are in milliseconds (column time_ms)."""
-    return _call(tools.run_sql, query)
+    return _call("run_sql", query=query)
 
 
 @mcp.tool()
@@ -67,7 +68,7 @@ def compare_versions(a: str, b: str) -> dict[str, Any]:
     """Speed-up of version b over version a, e.g. a='cpu', b='v3_separable'.
     speedup = time_a / time_b, so > 1 means b is faster. An unknown version name
     returns an error listing the valid ones."""
-    return _call(tools.compare_versions, a, b)
+    return _call("compare_versions", a=a, b=b)
 
 
 if __name__ == "__main__":

@@ -9,11 +9,14 @@
 //	POST /sql      {"query": "SELECT ..."}   read-only, guarded (guard.go)
 //	GET /metrics   Prometheus metrics (metrics.go)
 //
+// Tracing: W3C traceparent from the agent is honoured, so spans join its trace (tracing.go).
+//
 // Success: 200 with the same JSON the Python tool returns. Bad input from the model:
 // 400 {"error": "..."}, which the agent hands back to the model so it can retry.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -35,7 +38,14 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	dataDir := flag.String("data", "../data", "directory with results.csv and findings.csv")
 	conns := flag.Int("conns", 4, "read-only SQLite connections")
+	traces := flag.String("traces", "", "append spans as JSONL to this file (see tracing.go)")
 	flag.Parse()
+
+	shutdown, err := setupTracing(*traces)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer shutdown(context.Background())
 
 	srv, err := newServer(*dataDir, *conns)
 	if err != nil {
@@ -88,7 +98,7 @@ func (s *server) routes() http.Handler {
 		}
 		return runSQL(r.Context(), c, *body.Query)
 	}))
-	return s.metrics.middleware(mux)
+	return traced(s.metrics.middleware(mux))
 }
 
 // handle borrows a connection, runs the tool and maps errors to status codes.

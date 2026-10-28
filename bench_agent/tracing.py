@@ -53,6 +53,7 @@ class JsonlSpanExporter(SpanExporter):
                 if s.status.status_code is StatusCode.ERROR:
                     error = s.status.description or "error"
                 f.write(json.dumps({
+                    "service": "bench-agent",
                     "trace_id": format(s.context.trace_id, "032x"),
                     "span_id": format(s.context.span_id, "016x"),
                     "parent_id": format(s.parent.span_id, "016x") if s.parent else None,

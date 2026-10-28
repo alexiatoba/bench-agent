@@ -64,7 +64,7 @@ It has no data, so watch it guess.
 | G1–G2 | Go tool service + SQL guard | `bench-api/` | done |
 | G3 | Python agent calls the Go service | `bench_agent/tools.py` | done |
 | G4 | Prometheus `/metrics` | `bench-api/metrics.go` | done |
-| G5 | Trace context propagated from Python to Go | | in progress |
+| G5 | One trace across Python and Go | `bench-api/tracing.go`, `bench_agent/show_trace.py` | done |
 
 ### Step 1: tools and guardrail
 Make `pytest -q` fully green. Then write down in this README:
@@ -349,6 +349,72 @@ Two robustness fixes came out of these runs. That `npp_vs_v3` runaway previously
 the 180 s client timeout and **crashed the whole eval twice**. Now:
 - the agent caps each LLM call at `MAX_TOKENS = 4096`, a cost guardrail like `MAX_STEPS`
 - `run_evals.py` records a crashing case as `FAIL (crashed: ...)` and carries on
+
+### One trace across both services
+
+Each tool call from Python to Go carries a W3C `traceparent` header. It holds the current
+trace ID and the ID of the agent's `tool.<name>` span, and is injected with
+`opentelemetry.propagate`. On the Go side, `otelhttp` reads the header, so Go's spans join
+**the same trace as children of that span**. One question is one trace, end to end:
+
+```powershell
+cd bench-api; go run . -data ../data -traces ../bench-api-traces.jsonl
+# other terminal:
+$env:BENCH_API_URL = "http://localhost:8080"
+python -m bench_agent.agent "Run SELECT version, speed FROM results, then tell me how much faster v3_separable is than npp"
+python -m bench_agent.show_trace traces.jsonl bench-api-traces.jsonl
+```
+
+A real run with qwen3:8b ([evals/results/g5_cross_service_trace.txt](evals/results/g5_cross_service_trace.txt)):
+
+```
+trace f4535e37f3b68f10c7a5b0320e631a3c  (13 spans, 2 services)
+     0.0ms   45091.8ms  agent.answer [bench-agent]  outcome='answered'
+     0.1ms   17534.8ms    llm.call [bench-agent]
+ 17542.0ms      70.8ms    tool.run_sql [bench-agent]  tool_error='SQL error: no such column: speed'
+ 17598.7ms       7.9ms      POST /sql [bench-api]  http.response.status_code='400'
+ 17599.2ms       1.2ms        sqlite.query [bench-api]  db.query.text='SELECT version, speed FROM results;' bench.sql.reject_reason='sql_error'  ERROR: SQL error: no such column: speed
+ 17618.3ms    4570.0ms    llm.call [bench-agent]
+ 22194.2ms      22.4ms    tool.get_schema [bench-agent]
+ 22206.1ms       4.5ms      GET /schema [bench-api]  http.response.status_code='200'
+ 22220.8ms    6761.1ms    llm.call [bench-agent]
+ 28986.5ms      13.8ms    tool.run_sql [bench-agent]
+ 28988.9ms       5.8ms      POST /sql [bench-api]  http.response.status_code='200'
+ 28988.9ms       0.5ms        sqlite.query [bench-api]  db.query.text="SELECT version, time_ms FROM results WHERE version IN ('v3_s" db.response.returned_rows='2'
+ 29006.4ms   16083.1ms    llm.call [bench-agent]
+```
+
+What the merged trace shows that neither side shows alone:
+- **The recovery crosses the service boundary.** The bad query fails *in Go*
+  (`sqlite.query`, reason `sql_error`), the error comes back to the agent as a tool result,
+  the model asks for the schema, and the corrected query returns 2 rows.
+- **Where the time goes.** The LLM takes about 44.9 s of the 45 s. Go needs under 10 ms per
+  call, and the SQL itself about 1 ms.
+- **A client-side cost the server can't see.** The first `tool.run_sql` takes 71 ms in
+  Python but only 8 ms in Go. The difference is the first HTTP connection being set up on
+  the client. Only a trace that spans both sides shows it.
+
+Details:
+- **Go writes spans in the same JSONL line format** as `bench_agent/tracing.py`, plus a
+  `service` field on both sides, to its own file. Two processes appending to one file is not
+  safe. `show_trace.py` merges the files and prints one trace as a tree. With
+  `OTEL_EXPORTER_OTLP_ENDPOINT` set, both services also export OTLP, so Jaeger or any
+  other OTel backend shows the same tree.
+- **The server span is renamed to the route** (`POST /sql`) once the mux has matched, the
+  same low-cardinality label the metrics use. A rejected query is an **error span**
+  carrying the guard layer (`bench.sql.reject_reason`), the same value as the
+  `bench_api_sql_rejected_total` label, so a metric spike leads straight to example traces.
+- **A Go OpenTelemetry trap I hit:** a tracer stored in a package-level variable
+  (`var tracer = otel.Tracer(...)`) stays bound to the **first** tracer provider ever
+  installed. When a second test installed its own provider, the `sqlite.query` spans went
+  to the old one and the HTTP spans to the new one, so a trace split silently. The tracer is
+  now looked up at each use.
+- **Tests:** [tracing_test.go](bench-api/tracing_test.go) sends a fixed `traceparent` and
+  checks the trace ID, parent links, error status, reason and the JSONL format.
+  `test_one_trace_across_python_and_go` in
+  [tests/test_go_parity.py](tests/test_go_parity.py) runs the real agent loop (with a
+  scripted model) against the real Go binary and checks that Go's spans are children of the
+  agent's tool spans.
 
 ## Results
 

@@ -23,6 +23,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from opentelemetry import propagate
+
 from . import db
 
 MAX_ROWS = 50
@@ -263,6 +265,12 @@ def _call_remote(base: str, name: str, args: dict[str, Any]) -> Any:
         }[name]
         query = urllib.parse.urlencode({k: v for k, v in params.items() if v})
         req = urllib.request.Request(f"{base}{path}" + (f"?{query}" if query else ""))
+    # W3C traceparent for the current span (the agent's tool.<name>), so the Go spans
+    # join this trace as its children: one question is one trace across both services.
+    carrier: dict[str, str] = {}
+    propagate.inject(carrier)
+    for key, value in carrier.items():
+        req.add_header(key, value)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.load(resp)

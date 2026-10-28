@@ -33,6 +33,13 @@ var (
 )
 
 func runSQL(ctx context.Context, conn *sqlite3.Conn, query string) ([]Row, error) {
+	ctx, end := sqlSpan(ctx, query)
+	rows, err := checkThenExec(ctx, conn, query)
+	end(len(rows), err)
+	return rows, err
+}
+
+func checkThenExec(ctx context.Context, conn *sqlite3.Conn, query string) ([]Row, error) {
 	if err := checkReadOnly(query); err != nil {
 		return nil, err
 	}

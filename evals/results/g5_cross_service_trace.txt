@@ -1,0 +1,14 @@
+trace f4535e37f3b68f10c7a5b0320e631a3c  (13 spans, 2 services)
+     0.0ms   45091.8ms  agent.answer [bench-agent]  question='Run SELECT version, speed FROM results, then tell me how muc' outcome='answered'
+     0.1ms   17534.8ms    llm.call [bench-agent]
+ 17542.0ms      70.8ms    tool.run_sql [bench-agent]  tool_error='SQL error: no such column: speed'
+ 17598.7ms       7.9ms      POST /sql [bench-api]  http.response.status_code='400'
+ 17599.2ms       1.2ms        sqlite.query [bench-api]  db.query.text='SELECT version, speed FROM results;' bench.sql.reject_reason='sql_error'  ERROR: SQL error: no such column: speed
+ 17618.3ms    4570.0ms    llm.call [bench-agent]
+ 22194.2ms      22.4ms    tool.get_schema [bench-agent]
+ 22206.1ms       4.5ms      GET /schema [bench-api]  http.response.status_code='200'
+ 22220.8ms    6761.1ms    llm.call [bench-agent]
+ 28986.5ms      13.8ms    tool.run_sql [bench-agent]
+ 28988.9ms       5.8ms      POST /sql [bench-api]  http.response.status_code='200'
+ 28988.9ms       0.5ms        sqlite.query [bench-api]  db.query.text="SELECT version, time_ms FROM results WHERE version IN ('v3_s" db.response.returned_rows='2'
+ 29006.4ms   16083.1ms    llm.call [bench-agent]

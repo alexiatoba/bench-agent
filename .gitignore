@@ -5,3 +5,4 @@ __pycache__/
 .venv/
 bench-api/bench-api
 bench-api/*.exe
+bench-api-traces.jsonl

@@ -1,0 +1,7 @@
+topic,finding
+profiling,"Nsight Compute: the 2D kernels (v0-v2) were limited by L1/shared-memory throughput, not DRAM bandwidth, so cutting global loads gave much less speed-up than expected."
+profiling,"The separable kernel does 2(2r+1) instead of (2r+1)^2 multiply-adds per pixel and becomes partly DRAM-bound."
+npp,"Above 15 taps, NPP falls off a cliff: up to 9.9x slower than the separable kernel."
+numerics,"The separable result is more accurate than the 2D one. FP16 and 8-bit storage variants were also measured."
+benchmarking,"A sudden 7x slowdown with no code change was traced with nvidia-smi to the laptop GPU's power state."
+sanitizer,"All kernels ran clean under Compute Sanitizer memcheck (with leak check), racecheck, initcheck and synccheck, including 1000x777 images and the maximum 64x64 shared tile."

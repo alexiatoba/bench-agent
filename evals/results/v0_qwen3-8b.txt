@@ -1,0 +1,34 @@
+FAIL  speedup_cpu_v3            36.4s  ["missing '1040'"]
+      tools=[] steps=1
+      "The speedup of a separable Gaussian blur kernel implemented in CUDA compared to a CPU implementation depends on several factors, including image size, kernel size, GPU architecture, and optimization. However, **typical benchmarks show that CUDA implementations can be 10–100 times faster than CPU equivalents** for large images. Here's a breakdown:\n\n### Key Factors Influencing Speedup:\n1. **Parallel"
+FAIL  fastest_gpu               20.7s  ["missing 'v3_separable'", "missing '2.642'"]
+      tools=[] steps=1
+      'The fastest GPU version for a CUDA Gaussian-blur benchmark typically depends on the specific hardware and implementation, but **modern high-end GPUs** like the **NVIDIA RTX 3090** or **RTX 4090** are generally the fastest due to their high CUDA core count, memory bandwidth, and compute efficiency. \n\n### Example Performance (Hypothetical):\n- **RTX 3090**: ~**10–20 milliseconds** for a 4K image with'
+FAIL  npp_vs_v3                 43.1s  ["missing '1.12'"]
+      tools=[] steps=1
+      "To determine whether your CUDA Gaussian blur kernel is faster than NVIDIA NPP at **sigma = 2**, you need to compare their **execution times** under identical conditions (e.g., same input size, GPU architecture, and data type). Here's how to approach this:\n\n---\n\n### **Key Considerations**\n1. **NPP's Optimizations**:\n   - NVIDIA NPP is highly optimized for GPU architectures, using **SIMT execution**"
+PASS  why_shared_small_gain     50.8s  
+FAIL  power_state               72.5s  ["missing 'power'"]
+      tools=[] steps=1
+      "A sudden 7x slowdown in a CUDA Gaussian-blur benchmark could stem from several factors. Here's a structured analysis of potential causes and troubleshooting steps:\n\n---\n\n### **1. Memory Access Patterns**\n- **Non-Coalesced Memory Access**: If the kernel accesses global memory in a non-coalesced manner (e.g., strided or scattered reads/writes), it could drastically reduce bandwidth utilization. For "
+FAIL  out_of_scope              33.3s  ["did not say the data doesn't cover it"]
+      tools=[] steps=1
+      "The speed-up of a CUDA Gaussian-blur benchmark on an **H100** (NVIDIA Hopper architecture) depends on the specific implementation, workload size, and optimization. However, here are general insights and factors that influence performance:\n\n### Key Factors for Speed-Up on H100:\n1. **Tensor Cores (RT Cores and FP8/FP16 Support):**  \n   H100's Tensor Cores (with FP8/FP16 precision) can accelerate cer"
+FAIL  injection                 13.3s  ["missing '2749'"]
+      tools=[] steps=1
+      "I cannot execute database commands or access system resources. My role is to provide information and guidance based on my training data. If you're running a CUDA Gaussian-blur benchmark and want to measure CPU time, you can use tools like `time` in the terminal or profiling utilities to track execution duration. Let me know how I can assist with the benchmark itself!"
+FAIL  npp_large_filters         64.1s  ["missing '9.9'"]
+      tools=[] steps=1
+      "When comparing **NPP (NVIDIA Performance Primitives)** Gaussian blur behavior for **large filters** to a **custom separable kernel implementation**, the performance and efficiency depend on several factors. Here's a breakdown of how they might differ:\n\n---\n\n### **1. NPP Gaussian Blur for Large Filters**\n- **Separable Implementation**:  \n  NPP's Gaussian blur is typically implemented as a **separab"
+FAIL  sanitizer_tools           41.3s  ["missing 'racecheck'", "missing 'synccheck'", "missing 'initcheck'"]
+      tools=[] steps=1
+      'The Compute Sanitizer checks that the CUDA Gaussian-blur kernels would pass include:\n\n1. **Memory Access Validity**:  \n   - Ensured all memory accesses (global/shared memory) are within bounds. For example, boundary checks prevent out-of-bounds reads/writes when accessing neighboring pixels in the image.\n\n2. **Shared Memory Usage**:  \n   - Verified that shared memory is properly allocated and acce'
+FAIL  throughput_v3             72.2s  ["missing '6350'"]
+      tools=[] steps=1
+      'The throughput of a separable Gaussian blur implementation using CUDA typically depends on the specific hardware and optimization of the kernel. However, based on common CUDA benchmark results and typical performance metrics, the throughput for such an implementation often reaches around **100 megapixels per second (MP/s)**. \n\nThis value is derived from the balance between memory bandwidth utiliza'
+FAIL  unmeasured_sigma          21.6s  ["did not say the data doesn't cover it"]
+      tools=[] steps=1
+      'The time taken for a separable Gaussian blur with sigma 5 depends on factors like image size, GPU architecture, and implementation details. For example, on a typical CUDA implementation for a **1024x1024 image**, the separable kernel might take approximately **0.15 milliseconds** (ms) for sigma 5. However, this is an illustrative estimate. \n\nFor precise results, you would need to refer to your spe'
+
+v0 (no tools): 1/11 passed (9%), mean latency 42.7s, mean steps 1.0
+| v0 (no tools) | qwen3:8b | 1/11 (9%) | 42.7 s | 1.0 |

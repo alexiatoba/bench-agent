@@ -1,0 +1,7 @@
+version,description,image_w,image_h,sigma,radius,time_ms,max_abs_error
+cpu,single-threaded CPU reference (double accumulation),4096,4096,2,6,2749.0,0.0
+v0_naive,one thread per pixel; weights and pixels from global memory,4096,4096,2,6,10.685,
+v1_constant,weights in __constant__ memory (warp broadcast),4096,4096,2,6,9.12,
+v2_shared,shared-memory tile + halo loaded once per block,4096,4096,2,6,5.815,
+v3_separable,two 1D passes (horizontal then vertical),4096,4096,2,6,2.642,
+npp,NVIDIA NPP nppiFilterGaussBorder_32f_C1R baseline,4096,4096,2,6,2.962,

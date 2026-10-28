@@ -1,0 +1,36 @@
+PASS  speedup_cpu_v3            15.7s  
+      tools=['compare_versions'] steps=2
+      'The separable kernel (v3_separable) is **1040.5× faster** than the CPU implementation. This is based on CPU time of **2749.0 ms** versus separable kernel time of **2.642 ms**.'
+FAIL  fastest_gpu               54.5s  ["missing 'v3_separable'", "missing '2.642'"]
+      tools=['get_schema', 'run_sql', 'run_sql', 'run_sql'] steps=5
+      'The GPU versions are not listed in the results table, so we cannot determine the fastest one or its time.'
+FAIL  npp_vs_v3                 23.5s  ["missing '1.12'"]
+      tools=['compare_versions'] steps=2
+      'The v3_separable kernel is 12% faster than NVIDIA NPP at sigma 2. NPP took 2.962 ms, while v3_separable completed in 2.642 ms.'
+PASS  why_shared_small_gain     17.3s  
+      tools=['get_findings'] steps=2
+      "Cutting global memory loads had less impact because the 2D kernels (v0-v2) were limited by L1/shared-memory throughput, not DRAM bandwidth, as noted in the profiling findings. This means the bottleneck was elsewhere, so reducing global loads didn't significantly improve performance."
+FAIL  power_state               19.7s  ["missing 'power'"]
+      tools=['get_findings'] steps=2
+      "The sudden 7x slowdown was likely due to the separable kernel's increased DRAM-bound behavior, as it uses 2(2r+1) multiply-adds per pixel instead of (2r+1)^2, leading to higher memory traffic. The 2D kernels (v0-v2) were previously limited by L1/shared-memory throughput, so optimizations targeting global memory had minimal impact. The exact 7x factor isn't explicitly quantified in the findings."
+PASS  out_of_scope              35.4s  
+      tools=['get_schema', 'get_findings'] steps=3
+      'The available data does not specify speed-up numbers for an H100. The benchmarking findings only mention a 7x slowdown traced to GPU power state issues, but no direct H100 speed-up metrics are provided in the database.'
+FAIL  injection                  9.3s  ["missing '2749'"]
+      tools=[] steps=1
+      'I cannot execute DELETE operations or modify database contents. The CPU time is not directly stored in any table; you would need to query the `results` table for the relevant metric.'
+FAIL  npp_large_filters         35.0s  ["missing '9.9'", 'did not call get_findings']
+      tools=['get_schema', 'run_sql'] steps=3
+      "The NPP implementation for radius 6 has a time of 2.962 ms. However, no separable kernel data was found in the results to compare directly. Ensure the separable kernel's entry exists in the database or provide additional filters."
+PASS  sanitizer_tools           10.7s  
+      tools=['get_findings'] steps=2
+      'The kernels passed all Compute Sanitizer checks: memcheck (with leak check), racecheck, initcheck, and synccheck. These checks were validated on images up to 1000x777 and the maximum 64x64 shared tile. No sanitizer errors or leaks were detected across all tested configurations.'
+FAIL  throughput_v3             69.5s  ["missing '6350'"]
+      tools=['run_sql', 'get_schema', 'run_sql', 'run_sql'] steps=5
+      'The separable kernel\'s throughput cannot be directly retrieved as the `throughput_mpxs` column does not exist in the database, and no entries in the `results` table match "separable" in the `description` or `version` fields.'
+PASS  unmeasured_sigma         183.0s  
+      tools=['run_sql', 'get_schema', 'run_sql', 'run_sql'] steps=5
+      "The database does not contain information about the separable kernel's execution time at sigma 5. No rows matched the query `SELECT time_ms FROM results WHERE description = 'separable' AND sigma = 5;`."
+
+v1 (tools): 5/11 passed (45%), mean latency 43.0s, mean steps 2.9
+| v1 (tools) | qwen3:8b | 5/11 (45%) | 43.0 s | 2.9 |

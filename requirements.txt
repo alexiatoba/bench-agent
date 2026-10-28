@@ -1,0 +1,5 @@
+openai>=1.40      # OpenAI-compatible client: works with NVIDIA NIM, Ollama, OpenAI
+mcp>=1.2,<2      # Model Context Protocol v1 (FastMCP server); v2 renamed the API
+pyyaml>=6.0
+opentelemetry-sdk>=1.30   # step 5: tracing (exporters: JSONL file, console, optional OTLP)
+pytest>=8.0
